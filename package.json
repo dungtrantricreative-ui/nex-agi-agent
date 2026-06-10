@@ -1,0 +1,13 @@
+{
+  "name": "nex-agi-deep-agent",
+  "version": "1.0.0",
+  "description": "Autonomous Agent Web App utilizing Nex-N2-Pro via CF Worker Proxy",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "cors": "^2.8.5"
+  }
+}
