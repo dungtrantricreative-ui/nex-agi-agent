@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nex-AGI Deep Agent Space</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-100 font-sans h-screen flex flex-col">
+
+    <header class="border-b border-gray-800 bg-gray-900/40 backdrop-blur px-6 py-4 flex items-center justify-between shadow-md">
+        <div class="flex items-center gap-3">
+            <div class="bg-gradient-to-br from-indigo-500 to-cyan-500 p-2.5 rounded-xl shadow-lg shadow-cyan-500/10">
+                <i class="fa-solid fa-brain text-white text-xl animate-pulse"></i>
+            </div>
+            <div>
+                <h1 class="text-md font-bold bg-gradient-to-r from-cyan-400 to-indigo-400 bg-clip-text text-transparent">Nex-AGI Autonomous Agent</h1>
+                <p class="text-xs text-gray-500 flex items-center gap-1">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                    Engine: nex-agi/nex-n2-pro:free
+                </p>
+            </div>
+        </div>
+        <div class="text-xs bg-gray-900 border border-gray-800 px-3 py-1.5 rounded-xl text-gray-400 font-mono">
+            <i class="fa-solid fa-server text-cyan-400 mr-1.5"></i>CF Worker API Router Connected
+        </div>
+    </header>
+
+    <main class="flex-1 overflow-y-auto px-4 py-8 md:px-16 lg:px-48 custom-scrollbar" id="chat-scroller">
+        <div id="blank-screen" class="h-full flex flex-col items-center justify-center text-center max-w-lg mx-auto space-y-6 py-12">
+            <div class="text-4xl p-4 bg-gray-900 border border-gray-800 rounded-2xl shadow-xl">⚡</div>
+            <div class="space-y-1">
+                <h2 class="text-xl font-bold text-gray-200">Không Gian Làm Việc Của Đặc Vụ</h2>
+                <p class="text-gray-400 text-xs px-4">Hãy đưa ra yêu cầu phức tạp bao gồm nghiên cứu dữ liệu sâu rộng trên internet, lập trình ứng dụng hoặc quản trị tệp tin cục bộ.</p>
+            </div>
+            <div class="grid grid-cols-2 gap-3 w-full text-left text-xs text-gray-400">
+                <div class="p-3 bg-gray-900/50 border border-gray-800 rounded-xl hover:bg-gray-800 transition cursor-pointer" onclick="setPrompt('Thực hiện deep_search tìm kiếm thông tin cực sâu về sự thay đổi thuật toán SEO năm nay và tóm tắt cốt lõi.')">
+                    <i class="fa-solid fa-globe text-cyan-400 mb-1.5 block"></i>
+                    <strong>Siêu tìm kiếm:</strong> Quét dữ liệu quy mô > 100 trang web đồng loạt.
+                </div>
+                <div class="p-3 bg-gray-900/50 border border-gray-800 rounded-xl hover:bg-gray-800 transition cursor-pointer" onclick="setPrompt('Tạo một file có tên calculator.js, viết code tính toán cơ bản vào đó rồi chạy terminal kiểm tra xem file có lỗi cú pháp không.')">
+                    <i class="fa-solid fa-code text-indigo-400 mb-1.5 block"></i>
+                    <strong>Đa nhiệm Agent:</strong> Tự động phối hợp viết tệp tin và chạy lệnh test.
+                </div>
+            </div>
+        </div>
+        <div id="message-flow" class="space-y-6 hidden"></div>
+    </main>
+
+    <footer class="p-4 bg-gray-900 border-t border-gray-800/80">
+        <form id="agent-form" class="max-w-4xl mx-auto relative flex items-center bg-gray-950 border border-gray-800 focus-within:border-cyan-500/40 rounded-2xl p-2 transition">
+            <textarea id="prompt-input" rows="1" placeholder="Nhập lệnh hoặc yêu cầu hành động tại đây..." class="w-full bg-transparent outline-none resize-none px-3 text-sm text-gray-100 placeholder-gray-600 custom-scrollbar max-h-32" oninput="this.style.height = ''; this.style.height = this.scrollHeight + 'px'"></textarea>
+            <button type="submit" id="execute-btn" class="bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs px-4 py-2.5 rounded-xl transition flex items-center gap-2 cursor-pointer shrink-0">
+                <span>Kích Hoạt</span>
+                <i class="fa-solid fa-play text-[10px]"></i>
+            </button>
+        </form>
+    </footer>
+
+    <script>
+        const agentForm = document.getElementById('agent-form');
+        const promptInput = document.getElementById('prompt-input');
+        const blankScreen = document.getElementById('blank-screen');
+        const messageFlow = document.getElementById('message-flow');
+        const chatScroller = document.getElementById('chat-scroller');
+        const executeBtn = document.getElementById('execute-btn');
+
+        let sessionLogs = [
+            { "role": "system", "content": "You are a superior autonomous AI agent integrated with system tools. Execute system steps step-by-step. Always answer in Vietnamese." }
+        ];
+
+        function setPrompt(text) {
+            promptInput.value = text;
+            promptInput.dispatchEvent(new Event('input'));
+        }
+
+        agentForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const query = promptInput.value.trim();
+            if (!query) return;
+
+            blankScreen.classList.add('hidden');
+            messageFlow.classList.remove('hidden');
+
+            appendMessageBlock(query, 'user');
+            promptInput.value = '';
+            promptInput.style.height = 'auto';
+
+            sessionLogs.push({ "role": "user", "content": query });
+            const loadingTrackerId = displayLoadingState();
+            
+            executeBtn.disabled = true;
+            executeBtn.classList.add('opacity-40', 'cursor-not-allowed');
+
+            try {
+                const apiResponse = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messages: sessionLogs })
+                });
+
+                const data = await apiResponse.json();
+                document.getElementById(loadingTrackerId).remove();
+
+                if (data.error) {
+                    appendMessageBlock(`⚠️ Hệ thống báo lỗi: ${data.error}\nChi tiết: ${data.details || ''}`, 'agent');
+                } else {
+                    sessionLogs = data.history;
+                    appendMessageBlock(data.reply, 'agent', data.logs || []);
+                }
+            } catch (err) {
+                document.getElementById(loadingTrackerId).remove();
+                appendMessageBlock(`❌ Không thể kết nối tới máy chủ dịch vụ backend: ${err.message}`, 'agent');
+            } finally {
+                executeBtn.disabled = false;
+                executeBtn.classList.remove('opacity-40', 'cursor-not-allowed');
+                chatScroller.scrollTo({ top: chatScroller.scrollHeight, behavior: 'smooth' });
+            }
+        });
+
+        function appendMessageBlock(content, role, logs = []) {
+            const block = document.createElement('div');
+            block.className = `flex gap-4 ${role === 'user' ? 'justify-end' : 'justify-start'}`;
+
+            block.innerHTML = role === 'user' 
+                ? `
+                    <div class="max-w-[80%] bg-cyan-900/20 border border-cyan-800/40 px-4 py-3 rounded-2xl rounded-tr-none text-sm text-cyan-100 whitespace-pre-wrap">${escapeContent(content)}</div>
+                    <div class="w-8 h-8 rounded-full bg-cyan-700 flex items-center justify-center font-bold text-xs shrink-0 shadow">ME</div>
+                `
+                : `
+                    <div class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center text-xs shrink-0 shadow-md">🤖</div>
+                    <div class="max-w-[85%] space-y-3 w-full">
+                        ${logs.length > 0 ? `
+                            <div class="bg-gray-900 border border-gray-800 rounded-xl p-3 text-xs space-y-1.5 font-mono max-h-48 overflow-y-auto custom-scrollbar shadow-inner">
+                                <div class="text-gray-400 font-bold mb-1 flex items-center gap-2">
+                                    <i class="fa-solid fa-gears text-indigo-400 animate-spin"></i> Nhật ký hành động của Đặc vụ:
+                                </div>
+                                ${logs.map(item => {
+                                    if(item.type.endsWith('_res')) {
+                                        return `<div class="text-gray-500 pl-4 border-l border-gray-800 overflow-hidden text-ellipsis whitespace-nowrap">> ${escapeContent(item.data || item.action)}</div>`;
+                                    }
+                                    let iconClass = 'fa-terminal text-cyan-400';
+                                    if(item.type === 'file') iconClass = 'fa-file-lines text-purple-400';
+                                    if(item.type === 'search') iconClass = 'fa-earth-americas text-emerald-400';
+                                    return `<div class="text-gray-300 flex items-center gap-2"><i class="fa-solid ${iconClass}"></i><span>${escapeContent(item.action)}</span></div>`;
+                                }).join('')}
+                            </div>
+                        ` : ''}
+                        <div class="bg-gray-900/60 border border-gray-800/60 px-4 py-3 rounded-2xl rounded-tl-none text-sm text-gray-200 leading-relaxed whitespace-pre-wrap shadow-sm">${escapeContent(content)}</div>
+                    </div>
+                `;
+
+            messageFlow.appendChild(block);
+            chatScroller.scrollTo({ top: chatScroller.scrollHeight, behavior: 'smooth' });
+        }
+
+        function displayLoadingState() {
+            const tempId = 'loader-' + Date.now();
+            const loadingBlock = document.createElement('div');
+            loadingBlock.id = tempId;
+            loadingBlock.className = 'flex gap-4 justify-start';
+            loadingBlock.innerHTML = `
+                <div class="w-8 h-8 rounded-full bg-gray-900 border border-gray-800 flex items-center justify-center text-xs shrink-0">🤖</div>
+                <div class="bg-gray-900/30 border border-gray-800/40 px-4 py-3 rounded-2xl rounded-tl-none text-sm text-gray-500 flex items-center gap-2 shadow-sm">
+                    <i class="fa-solid fa-spinner animate-spin text-cyan-400"></i>
+                    <span>Đặc vụ đang suy nghĩ và chuỗi phối hợp các công cụ chuyên sâu...</span>
+                </div>
+            `;
+            messageFlow.appendChild(loadingBlock);
+            chatScroller.scrollTo({ top: chatScroller.scrollHeight, behavior: 'smooth' });
+            return tempId;
+        }
+
+        function escapeContent(rawStr) {
+            return rawStr.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        }
+    </script>
+</body>
+</html>
