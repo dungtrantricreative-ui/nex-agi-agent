@@ -2,44 +2,44 @@ const express = require('express');
 const path = require('path');
 const app = express();
 
-// Cấu hình bắt buộc để đọc dữ liệu JSON gửi lên từ giao diện
+// Cấu hình bắt buộc để Express đọc được dữ liệu JSON gửi từ giao diện lên
 app.use(express.json());
 
-// Biến thư mục "public" thành đường dẫn "/static" trên web để sửa lỗi 404 file tĩnh
+// Sửa lỗi 404 bằng cách ánh xạ thư mục tĩnh "public" thành tiền tố "/static" trên URL
 app.use('/static', express.static(path.join(__dirname, 'public')));
 
-// Trả về file index.html khi truy cập trang chủ
+// Trả về giao diện index.html khi người dùng truy cập trang chủ
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Hàm xử lý logic kết nối AI Đặc vụ
+// Hàm điều phối trung tâm kết nối với Đặc vụ AI
 const handleHumanizeRequest = async (req, res) => {
     try {
         const { text, language } = req.body;
 
-        // Thiết lập Header để truyền dữ liệu theo dạng cập nhật trạng thái liên tục (Stream)
+        // Thiết lập các Header để bật chế độ truyền dữ liệu cập nhật trạng thái liên tục (Stream SSE)
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
 
-        // Bước 1: Gửi tín hiệu khởi tạo lên giao diện
+        // Bước 1: Phát tín hiệu kết nối thành công tới giao diện
         res.write(`data: ${JSON.stringify({ status: 'info', message: 'Đã kết nối Backend Node.js thành công!' })}\n\n`);
         
-        // Bước 2: Bật đèn xanh trạng thái "Xử lý Đặc vụ"
-        res.write(`data: ${JSON.stringify({ status: 'step', step_name: 'Xử lý Đặc vụ', message: 'Đang kết nối tới mô hình AI qua Cloudflare Worker...' })}\n\n`);
+        // Bước 2: Bật trạng thái xử lý đặc vụ
+        res.write(`data: ${JSON.stringify({ status: 'step', step_name: 'Xử lý Đặc vụ', message: 'Đang kết nối tới mô hình nex-agi/nex-n2-pro:free qua Cloudflare...' })}\n\n`);
 
-        // ⚠️ CHÚ Ý: Thay link dưới đây bằng URL Cloudflare Worker thực tế của bạn
-        const workerUrl = 'https://openrouter-api.YOUR_SUBDOMAIN.workers.dev/chat/completions';
+        // ĐỊA CHỈ WORKER THỰC TẾ CỦA BẠN
+        const workerUrl = 'https://openrouter-api.dungtrantricreative.workers.dev/v1/chat/completions';
 
-        // Gọi sang Cloudflare Worker proxy (sử dụng model google/gemini-2.5-flash)
+        // Gọi API qua Cloudflare Worker proxy đến OpenRouter
         const aiResponse = await fetch(workerUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                model: 'google/gemini-2.5-flash',
+                model: 'nex-agi/nex-n2-pro:free', // Sử dụng mô hình bạn yêu cầu
                 messages: [
                     { 
                         role: 'system', 
@@ -50,36 +50,37 @@ const handleHumanizeRequest = async (req, res) => {
             })
         });
 
+        // Kiểm tra xem Cloudflare Worker có trả về lỗi hay không
         if (!aiResponse.ok) {
             const errorText = await aiResponse.text();
-            throw new Error(`Cloudflare Worker báo lỗi: ${aiResponse.status} - ${errorText}`);
+            throw new Error(`Cloudflare Worker phản hồi lỗi: ${aiResponse.status} - ${errorText}`);
         }
 
-        // Đọc dữ liệu trả về từ OpenRouter thông qua Worker
+        // Bóc tách dữ liệu JSON nhận được từ mô hình AI
         const aiData = await aiResponse.json();
-        const aiText = aiData.choices?.[0]?.message?.content || 'Không nhận được phản hồi từ mô hình AI.';
+        const aiText = aiData.choices?.[0]?.message?.content || 'Không nhận được nội dung phản hồi từ mô hình AI.';
 
-        // Bước 3: Đánh dấu hoàn thành bước xử lý Đặc vụ
+        // Bước 3: Đóng trạng thái xử lý đặc vụ (Hiển thị tích xanh trên giao diện)
         res.write(`data: ${JSON.stringify({ status: 'step_complete', step_name: 'Xử lý Đặc vụ', message: 'Đã tối ưu hóa văn bản xong!' })}\n\n`);
 
-        // Bước 4: Trả kết quả văn bản cuối cùng về bong bóng chat AI
+        // Bước 4: Đẩy toàn bộ nội dung văn bản hoàn chỉnh vào bong bóng chat AI
         res.write(`data: ${JSON.stringify({ status: 'complete', final_text: aiText })}\n\n`);
         res.end();
 
     } catch (error) {
         console.error("Lỗi xử lý hệ thống:", error);
-        // Nếu có bất kỳ sự cố nào, gửi trạng thái lỗi về giao diện để hiển thị dấu X đỏ
+        // Khi xảy ra sự cố (hết chìa khóa API, lỗi mạng...), gửi tín hiệu báo lỗi để giao diện hiển thị dấu X đỏ
         res.write(`data: ${JSON.stringify({ status: 'error', step_name: 'Hệ thống', message: error.message })}\n\n`);
         res.end();
     }
 };
 
-// Hỗ trợ cả 2 endpoint để đảm bảo dù frontend gọi đường dẫn nào cũng không bị lỗi "Cannot POST"
+// Map cả 2 endpoint nhằm tương thích tuyệt đối với mọi phiên bản gọi từ app.js
 app.post('/humanize', handleHumanizeRequest);
 app.post('/api/chat', handleHumanizeRequest);
 
-// Cấu hình PORT tự động cho Render
+// Thiết lập cổng lắng nghe tự động đồng bộ theo cơ chế của Render.com
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Ứng dụng đang chạy mượt mà tại port ${PORT}`);
+    console.log(`Ứng dụng hoạt động mượt mà tại port ${PORT}`);
 });
