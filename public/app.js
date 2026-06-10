@@ -1,52 +1,113 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const inputText        = document.getElementById('input-text');
-    const submitBtn        = document.getElementById('submit-btn');
-    const chatContainer    = document.getElementById('chat-container');
-    const chatScroll       = document.getElementById('chat-scroll');
-    const charCount        = document.getElementById('char-count');
-    const processingBadge  = document.getElementById('processing-badge');
-    const welcomeScreen    = document.getElementById('welcome-screen');
-    const userTpl          = document.getElementById('user-message-template');
-    const stepsTpl         = document.getElementById('steps-block-template');
-    const stepItemTpl      = document.getElementById('step-item-template');
-    const aiTpl            = document.getElementById('ai-message-template');
+    // ─── CẤU HÌNH ENDPOINT ĐẶC VỤ ──────────────────────────────────────────
+    // Thay đổi thành '/chat' nếu file main.py của bạn khai báo @app.post("/chat")
+    const AGENT_ENDPOINT = '/api/chat'; 
 
-    let isProcessing = false;
-    let currentStepsBlock = null;   // {el, list, countEl, count, doneEl}
+    // ─── KHỞI TẠO PHẦN TỬ DOM ──────────────────────────────────────────────
+    const elements = {
+        inputText:       document.getElementById('input-text'),
+        submitBtn:       document.getElementById('submit-btn'),
+        chatContainer:   document.getElementById('chat-container'),
+        chatScroll:      document.getElementById('chat-scroll'),
+        charCount:       document.getElementById('char-count'),
+        processingBadge: document.getElementById('processing-badge'),
+        welcomeScreen:   document.getElementById('welcome-screen'),
+        userTpl:         document.getElementById('user-message-template'),
+        stepsTpl:        document.getElementById('steps-block-template'),
+        stepItemTpl:     document.getElementById('step-item-template'),
+        aiTpl:           document.getElementById('ai-message-template')
+    };
 
-    // ─── Helpers ─────────────────────────────────────────────────────────────
-
-    function scrollBottom() {
-        chatScroll.scrollTo({ top: chatScroll.scrollHeight, behavior: 'smooth' });
+    // Kiểm tra an toàn xem có phần tử nào bị null do viết sai ID bên HTML không
+    let hasError = false;
+    for (const [key, el] of Object.entries(elements)) {
+        if (!el) {
+            console.error(`[LỖI GIAO DIỆN]: Không tìm thấy phần tử có ID hoặc cấu trúc phù hợp cho: "${key}"`);
+            hasError = true;
+        }
+    }
+    if (hasError) {
+        alert("Giao diện đang thiếu một số thẻ ID quan trọng. Vui lòng nhấn F12 chọn tab Console để xem chi tiết!");
+        return; // Dừng thực thi để tránh crash trang
     }
 
-    // Xóa màn hình chào mừng khi có tin nhắn đầu tiên
-    function hideWelcome() {
-        if (welcomeScreen && welcomeScreen.parentNode) {
-            welcomeScreen.remove();
+    let isProcessing = false;
+    let currentStepsBlock = null; 
+    let stepMap = {};
+
+    // ─── SỰ KIỆN THEO DÕI ──────────────────────────────────────────────────
+    
+    // Cập nhật số lượng ký tự khi gõ
+    elements.inputText.addEventListener('input', () => {
+        elements.charCount.textContent = elements.inputText.value.length;
+    });
+
+    // Sự kiện Click chuột vào nút gửi
+    elements.submitBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        startAgentProcess();
+    });
+
+    // Sự kiện bấm tổ hợp phím Ctrl + Enter
+    elements.inputText.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.key === 'Enter') {
+            e.preventDefault(); // Ngăn chặn hành vi xuống dòng mặc định
+            startAgentProcess();
+        }
+    });
+
+    // ─── LOGIC XỬ LÝ CHÍNH ─────────────────────────────────────────────────
+
+    async function startAgentProcess() {
+        const text = elements.inputText.value.trim();
+
+        if (!text || isProcessing) return;
+
+        // 1. Hiển thị tin nhắn của User lên màn hình
+        if (elements.welcomeScreen && elements.welcomeScreen.parentNode) {
+            elements.welcomeScreen.remove();
+        }
+        const userClone = elements.userTpl.content.cloneNode(true);
+        userClone.querySelector('p').textContent = text;
+        elements.chatContainer.appendChild(userClone);
+        scrollBottom();
+
+        // 2. Khóa form để tránh gửi lặp
+        elements.inputText.value = '';
+        elements.charCount.textContent = '0';
+        isProcessing = true;
+        elements.submitBtn.disabled = true;
+        elements.processingBadge.classList.remove('hidden');
+
+        // 3. Khởi tạo khối tiến trình (Steps Block) của Agent
+        currentStepsBlock = createStepsBlock();
+        stepMap = {};
+
+        // 4. Tiến hành kết nối Stream dữ liệu từ Backend
+        try {
+            await streamAgent(text);
+        } catch (err) {
+            console.error(err);
+            addAIMessage('Lỗi kết nối đặc vụ: ' + err.message);
+            if (currentStepsBlock) {
+                addStepItem(currentStepsBlock, 'error', 'Hệ thống', err.message);
+            }
+        } finally {
+            isProcessing = false;
+            elements.submitBtn.disabled = false;
+            elements.processingBadge.classList.add('hidden');
+            if (currentStepsBlock) markStepsBlockDone(currentStepsBlock);
         }
     }
 
-    // ─── Đếm số ký tự nhập vào ───────────────────────────────────────────────
+    // ─── CÁC HÀM TRỢ GIÚP (HELPERS) ────────────────────────────────────────
 
-    inputText.addEventListener('input', () => {
-        charCount.textContent = inputText.value.length;
-    });
-
-    // ─── Thêm tin nhắn của User vào giao diện ────────────────────────────────
-
-    function addUserMessage(text) {
-        hideWelcome();
-        const clone = userTpl.content.cloneNode(true);
-        clone.querySelector('p').textContent = text;
-        chatContainer.appendChild(clone);
-        scrollBottom();
+    function scrollBottom() {
+        elements.chatScroll.scrollTo({ top: elements.chatScroll.scrollHeight, behavior: 'smooth' });
     }
 
-    // ─── Tạo khối hiển thị các bước thực thi lệnh (Agent Commands Block) ──────
-
     function createStepsBlock() {
-        const clone = stepsTpl.content.cloneNode(true);
+        const clone = elements.stepsTpl.content.cloneNode(true);
         const el       = clone.querySelector('.steps-block');
         const toggle   = clone.querySelector('.steps-toggle');
         const chevron  = clone.querySelector('.steps-chevron');
@@ -65,10 +126,10 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        chatContainer.appendChild(el);
+        elements.chatContainer.appendChild(el);
         scrollBottom();
 
-        const domEl = chatContainer.lastElementChild;
+        const domEl = elements.chatContainer.lastElementChild;
         const domList    = domEl.querySelector('.steps-list');
         const domCountEl = domEl.querySelector('.steps-count');
         const domDoneEl  = domEl.querySelector('.steps-done-badge');
@@ -77,18 +138,11 @@ document.addEventListener('DOMContentLoaded', () => {
         domList.classList.remove('hidden');
         domChevron.classList.add('open');
 
-        return {
-            el: domEl,
-            list: domList,
-            countEl: domCountEl,
-            doneEl: domDoneEl,
-            chevron: domChevron,
-            count: 0
-        };
+        return { el: domEl, list: domList, countEl: domCountEl, doneEl: domDoneEl, chevron: domChevron, count: 0 };
     }
 
     function addStepItem(block, status, name, msg) {
-        const clone = stepItemTpl.content.cloneNode(true);
+        const clone = elements.stepItemTpl.content.cloneNode(true);
         const item    = clone.querySelector('.step-item');
         const iconEl  = clone.querySelector('.step-icon');
         const nameEl  = clone.querySelector('.step-name');
@@ -125,16 +179,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 800);
     }
 
-    // ─── Thêm phản hồi của AI vào giao diện ───────────────────────────────────
-
     function addAIMessage(text) {
-        const clone = aiTpl.content.cloneNode(true);
+        const clone = elements.aiTpl.content.cloneNode(true);
         const mdDiv = clone.querySelector('.markdown-body');
+        
         if (typeof marked !== 'undefined') {
             mdDiv.innerHTML = marked.parse(text);
         } else {
             mdDiv.textContent = text;
         }
+
         if (typeof renderMathInElement !== 'undefined') {
             setTimeout(() => {
                 renderMathInElement(mdDiv, {
@@ -155,79 +209,24 @@ document.addEventListener('DOMContentLoaded', () => {
         copyBtn.addEventListener('click', () => {
             navigator.clipboard.writeText(text).then(() => {
                 const orig = copyBtn.innerHTML;
-                copyBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2.5 6.5L5 9L10.5 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Đã copy`;
+                copyBtn.innerHTML = `✔ Đã copy`;
                 setTimeout(() => { copyBtn.innerHTML = orig; }, 2000);
             });
         });
-        likeBtn.addEventListener('click', () => {
-            likeBtn.classList.toggle('text-green-600');
-            dislikeBtn.classList.remove('text-red-500');
-        });
-        dislikeBtn.addEventListener('click', () => {
-            dislikeBtn.classList.toggle('text-red-500');
-            likeBtn.classList.remove('text-green-600');
-        });
+        
+        likeBtn.addEventListener('click', () => { likeBtn.classList.toggle('text-green-600'); dislikeBtn.classList.remove('text-red-500'); });
+        dislikeBtn.addEventListener('click', () => { dislikeBtn.classList.toggle('text-red-500'); likeBtn.classList.remove('text-green-600'); });
 
-        chatContainer.appendChild(wrapper);
+        elements.chatContainer.appendChild(wrapper);
         scrollBottom();
     }
 
-    // ─── Bản đồ lưu vết các tiến trình chạy tác vụ ──────────────────────────────
-    let stepMap = {};
+    // ─── ĐỌC VÀ PHÂN TÍCH STREAM TỪ SERVER ─────────────────────────────────
 
-    // ─── Trình xử lý hành động gửi lệnh ────────────────────────────────────────
-
-    submitBtn.addEventListener('click', startAgentProcess);
-    inputText.addEventListener('keydown', e => {
-        if (e.ctrlKey && e.key === 'Enter') startAgentProcess();
-    });
-
-    async function startAgentProcess() {
-        const text = inputText.value.trim();
-
-        if (!text) return;
-        if (isProcessing) return;
-
-        addUserMessage(text);
-        inputText.value = '';
-        charCount.textContent = '0';
-
-        isProcessing = true;
-        submitBtn.disabled = true;
-        
-        // Hiển thị thanh trạng thái xử lý dữ liệu của hệ thống
-        processingBadge.classList.remove('hidden');
-
-        currentStepsBlock = createStepsBlock();
-        stepMap = {};
-
-        try {
-            await streamAgent(text);
-        } catch (err) {
-            console.error(err);
-            addAIMessage('Lỗi kết nối đặc vụ: ' + err.message);
-            if (currentStepsBlock) {
-                addStepItem(currentStepsBlock, 'error', 'Hệ thống', err.message);
-            }
-        } finally {
-            isProcessing = false;
-            submitBtn.disabled = false;
-            
-            // Ẩn thanh trạng thái xử lý dữ liệu khi kết thúc hoàn toàn
-            processingBadge.classList.add('hidden');
-            
-            if (currentStepsBlock) markStepsBlockDone(currentStepsBlock);
-        }
-    }
-
-    // GỌI STREAM ĐẶC VỤ AI QUA POST FETCH STREAM
     async function streamAgent(text) {
-        // Đổi đường dẫn thành endpoint bạn khai báo trong mã backend Python (ví dụ: '/api/chat' hoặc '/chat')
-        const response = await fetch('/api/chat', {
+        const response = await fetch(AGENT_ENDPOINT, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text })
         });
 
@@ -246,22 +245,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');
-            
-            // Giữ lại dòng dang dở cuối cùng vào bộ đệm buffer
-            buffer = lines.pop();
+            buffer = lines.pop() || '';
 
             for (const line of lines) {
                 const cleanedLine = line.trim();
                 if (!cleanedLine || !cleanedLine.startsWith('data: ')) continue;
 
-                const jsonStr = cleanedLine.substring(6); // Loại bỏ "data: " để lấy JSON
+                const jsonStr = cleanedLine.substring(6);
                 try {
                     const data = JSON.parse(jsonStr);
                     const block = currentStepsBlock;
 
                     if (data.status === 'info') {
                         addStepItem(block, 'running', 'Khởi tạo', data.message);
-
                     } else if (data.status === 'step') {
                         const key = data.step_name;
                         if (!stepMap[key]) {
@@ -271,7 +267,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         } else {
                             stepMap[key].itemEl.querySelector('.step-msg').textContent = data.message;
                         }
-
                     } else if (data.status === 'step_complete') {
                         const key = data.step_name;
                         if (stepMap[key]) {
@@ -280,13 +275,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         } else {
                             addStepItem(block, 'done', data.step_name, data.message);
                         }
-
                     } else if (data.status === 'complete') {
-                        if (data.final_text) {
-                            addAIMessage(data.final_text);
-                        }
-                        return; // Xử lý kết thúc thành công
-
+                        if (data.final_text) addAIMessage(data.final_text);
+                        return;
                     } else if (data.status === 'error') {
                         const key = data.step_name || 'Lỗi';
                         if (stepMap[key]) {
@@ -298,7 +289,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         throw new Error(data.message);
                     }
                 } catch (e) {
-                    console.error("Lỗi phân tích gói dữ liệu JSON stream:", e);
+                    console.error("Lỗi phân tích JSON stream:", e);
                 }
             }
         }
